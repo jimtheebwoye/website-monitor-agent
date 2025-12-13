@@ -17,8 +17,8 @@ RSS_FEEDS = [
 
 KEYWORDS = ["SAP", "HMRC", "BTP", "S/4HANA", "Sovereign"]
 
-EMAIL_FROM = "your_email@gmail.com"
-EMAIL_TO = "your_email@gmail.com"
+EMAIL_FROM = "jimtheebwoye@gmail.com"
+EMAIL_TO = "jimtheebwoye@gmail.com"
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 465
 
