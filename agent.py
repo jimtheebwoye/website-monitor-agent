@@ -11,20 +11,24 @@ import feedparser
 import smtplib
 from email.mime.text import MIMEText
 from datetime import datetime
+import os
 
 # =====================
 # CONFIG
 # =====================
 RSS_FEEDS = [
-    "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml",
-    "https://feeds.bbci.co.uk/news/technology/rss.xml"
+    "https://www.theregister.com/headlines.atom",                   # The Register headlines
+    "https://www.theregister.com/security/headlines.atom",          # The Register security section
+    "https://computerweekly.com/rss/All-Computerweekly.xml",        # ComputerWeekly
+    "https://cio.com/feed"                                           # CIO.com
 ]
 
 KEYWORDS = [
-    "artificial intelligence",
-    "machine learning",
-    "regulation",
-    "security"
+    "SAP",
+    "HMRC",
+    "BTP",
+    "S/4HANA",
+    "Sovereign"
 ]
 
 EMAIL_FROM = "your_email@gmail.com"
@@ -33,14 +37,16 @@ SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 465
 
 # =====================
-# LOGIC
+# FUNCTIONS
 # =====================
-def is_relevant(text):
-    text = text.lower()
-    return any(k.lower() in text for k in KEYWORDS)
+def get_matching_keywords(text):
+    """
+    Returns a list of keywords that appear in the text (case-insensitive).
+    """
+    text_lower = text.lower()
+    return [k for k in KEYWORDS if k.lower() in text_lower]
 
 def summarize(entry):
-    # Simple free summary: title + first 2 sentences
     summary = entry.get("summary", "")
     sentences = summary.split(". ")
     return ". ".join(sentences[:2]) + "."
@@ -53,10 +59,12 @@ def main():
 
         for entry in feed.entries:
             content = f"{entry.title} {entry.get('summary', '')}"
-
-            if is_relevant(content):
+            matched_keywords = get_matching_keywords(content)
+            if matched_keywords:
+                keyword_str = ", ".join(matched_keywords)
                 articles.append(
                     f"📰 {entry.title}\n"
+                    f"Matched keywords: {keyword_str}\n"
                     f"{summarize(entry)}\n"
                     f"{entry.link}\n"
                 )
@@ -79,5 +87,14 @@ def main():
 
     print("Email sent.")
 
+# =====================
+# RUN SCRIPT
+# =====================
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        import traceback
+        print("ERROR:")
+        traceback.print_exc()
+        raise e
