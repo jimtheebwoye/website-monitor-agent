@@ -1,28 +1,31 @@
-name: Website Monitor
+name: Website Monitor Agent
 
+# Schedule: every 2 days at 08:00 UTC
 on:
   schedule:
-    - cron: "0 8 * * *"   # Daily at 08:00 UTC
-  workflow_dispatch:
+    - cron: '0 8 */2 * *'   # every 2 days at 08:00 UTC
+  workflow_dispatch:        # allows manual trigger
 
 jobs:
   run-agent:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+    - name: Checkout repo
+      uses: actions/checkout@v3
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
 
-      - name: Install dependencies
-        run: |
-          pip install feedparser
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install --upgrade feedparser openai
 
-      - name: Run agent
-        env:
-          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
-        run: |
-          python agent.py
+    - name: Run website monitor agent
+      env:
+        EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      run: python agent.py
