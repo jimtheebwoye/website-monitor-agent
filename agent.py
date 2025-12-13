@@ -57,11 +57,19 @@ def main():
     msg["To"] = EMAIL_TO
     msg["Subject"] = subject
 
-    with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
-        server.login(EMAIL_FROM, os.environ["EMAIL_PASSWORD"])
-        server.send_message(msg)
+    import time
 
-    print("Email sent.")
+with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
+    for attempt in range(3):
+        try:
+            server.login(EMAIL_FROM, os.environ["EMAIL_PASSWORD"])
+            break
+        except smtplib.SMTPAuthenticationError as e:
+            print(f"Attempt {attempt+1} failed. Retrying in 5 seconds...")
+            time.sleep(5)
+    else:
+        print("Failed to login after 3 attempts. Email may not have been sent.")
+    server.send_message(msg)
 
 # 5️⃣ Run script safely
 if __name__ == "__main__":
