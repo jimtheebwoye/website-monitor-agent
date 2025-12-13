@@ -45,6 +45,7 @@ def get_matching_keywords(text):
                 matches.append(keyword)
 
     return matches
+    
 def fetch_and_filter_articles():
     matches = []
 
@@ -54,7 +55,7 @@ def fetch_and_filter_articles():
         for entry in feed.entries:
             text = f"{entry.get('title', '')} {entry.get('summary', '')}"
 
-            if matches_keywords(text):
+            if get_matching_keywords(text):  # <-- use this instead
                 matches.append({
                     "title": entry.get("title", "No title"),
                     "link": entry.get("link", "")
