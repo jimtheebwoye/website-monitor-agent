@@ -4,6 +4,7 @@ import smtplib
 from email.mime.text import MIMEText
 from datetime import datetime
 import os
+import time
 
 # 2️⃣ Configuration
 RSS_FEEDS = [
