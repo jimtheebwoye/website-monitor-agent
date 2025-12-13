@@ -50,29 +50,20 @@ def get_matching_keywords(text):
 # MAIN FUNCTION
 # =====================
 def main():
-    articles = []
-
-    for feed_url in RSS_FEEDS:
-        feed = feedparser.parse(feed_url)
-
-        for entry in feed.entries:
-            content = f"{entry.title} {entry.get('summary', '')}"
-            matched_keywords = get_matching_keywords(content)
-            if matched_keywords:
-                keyword_str = ", ".join(matched_keywords)
-                articles.append(
-                    f"📰 {entry.title}\nMatched keywords: {keyword_str}\n"
-                    f"{summarize(entry)}\n{entry.link}\n"
-                )
+    articles = fetch_and_filter_articles()
 
     if not articles:
-        print("No relevant articles found.")
+        print("No matching articles found.")
         return
 
-    body = "\n\n".join(articles)
-    subject = f"Website Monitor Digest — {datetime.now().strftime('%Y-%m-%d')}"
+    body_lines = []
+    for article in articles:
+        body_lines.append(f"{article['title']}\n{article['link']}\n")
 
-        msg = MIMEText(body)
+    body = "\n".join(body_lines)
+    subject = f"Website Monitor: {len(articles)} matching articles"
+
+    msg = MIMEText(body)
     msg["From"] = EMAIL_FROM
     msg["To"] = EMAIL_TO
     msg["Subject"] = subject
@@ -96,14 +87,6 @@ def main():
 
         server.send_message(msg)
 
-# =====================
-# RUN SCRIPT
-# =====================
+
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        import traceback
-        print("ERROR:")
-        traceback.print_exc()
-        raise e
+    main()
