@@ -5,7 +5,7 @@ from datetime import datetime
 import os
 import time
 import re
-import openai
+from openai import OpenAI
 
 # =====================
 # CONFIG
@@ -24,12 +24,22 @@ EMAIL_TO = "jimtheebwoye@gmail.com"
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 465
 
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+
+# Initialise OpenAI client
+client = OpenAI(api_key=OPENAI_API_KEY)
+
 # =====================
 # HELPER FUNCTIONS
 # =====================
 def get_matching_keywords(text):
+    """
+    Returns a list of keywords that appear in the text.
+    SAP must match as a whole word.
+    """
     matches = []
     text_lower = text.lower()
+
     for keyword in KEYWORDS:
         if keyword == "SAP":
             if re.search(r"\bSAP\b", text, re.IGNORECASE):
@@ -37,31 +47,39 @@ def get_matching_keywords(text):
         else:
             if keyword.lower() in text_lower:
                 matches.append(keyword)
+
     return matches
 
+
 def summarize_text(text):
-    """Use OpenAI to summarize the text. Returns summary string or fallback."""
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        return "Summary unavailable (API key missing)."
-    
-    openai.api_key = api_key
-    
+    """
+    Uses OpenAI to summarise text in 2–3 sentences.
+    """
+    if not OPENAI_API_KEY:
+        return "Summary unavailable (OpenAI API key missing)."
+
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "You are a helpful assistant that summarizes news articles."},
-                {"role": "user", "content": f"Summarize the key points of this article in 2-3 concise sentences:\n\n{text}"}
+                {
+                    "role": "user",
+                    "content": (
+                        "Summarise the key points of the following article "
+                        "in 2–3 concise sentences:\n\n"
+                        f"{text}"
+                    ),
+                }
             ],
-            max_tokens=150,
             temperature=0.3,
         )
-        summary = response.choices[0].message.content.strip()
-        return summary
+
+        return response.choices[0].message.content.strip()
+
     except Exception as e:
-        print(f"OpenAI summarization failed: {e}")
+        print(f"OpenAI summarisation failed: {e}")
         return "Summary unavailable."
+
 
 def fetch_and_filter_articles():
     matches = []
@@ -85,6 +103,7 @@ def fetch_and_filter_articles():
                 })
 
     return matches
+
 
 # =====================
 # MAIN FUNCTION
@@ -117,6 +136,7 @@ def main():
 
     with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
         logged_in = False
+
         for attempt in range(3):
             try:
                 server.login(EMAIL_FROM, os.environ["EMAIL_PASSWORD"])
@@ -127,12 +147,11 @@ def main():
                 time.sleep(5)
 
         if not logged_in:
-            raise RuntimeError(
-                "Could not authenticate with Gmail SMTP. Aborting email send."
-            )
+            raise RuntimeError("Could not authenticate with Gmail SMTP.")
 
         server.send_message(msg)
         print("Email sent successfully.")
+
 
 if __name__ == "__main__":
     main()
