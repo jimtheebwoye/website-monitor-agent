@@ -29,6 +29,8 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 # Initialise OpenAI client
 client = OpenAI(api_key=OPENAI_API_KEY)
 
+print("OPENAI_API_KEY present:", bool(OPENAI_API_KEY))
+
 # =====================
 # HELPER FUNCTIONS
 # =====================
