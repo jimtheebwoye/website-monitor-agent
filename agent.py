@@ -62,14 +62,6 @@ def fetch_and_filter_articles():
 
     return matches
     
-def matches_keywords(text):
-    text = text.lower()
-
-    for pattern in KEYWORD_PATTERNS:
-        if pattern.search(text):
-            return True
-
-    return False
     
 # =====================
 # MAIN FUNCTION
