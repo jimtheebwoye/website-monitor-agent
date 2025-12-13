@@ -1,0 +1,49 @@
+name: Test OpenAI API Key
+
+on:
+  workflow_dispatch:  # allows manual trigger
+
+jobs:
+  test-openai:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install --upgrade openai
+
+      - name: Test OpenAI API Key
+        run: |
+          python - <<EOF
+          import os
+          import openai
+
+          api_key = os.environ.get("OPENAI_API_KEY")
+          if not api_key:
+              print("API key not found!")
+          else:
+              print("API key found!")
+
+          openai.api_key = api_key
+
+          try:
+              response = openai.ChatCompletion.create(
+                  model="gpt-3.5-turbo",
+                  messages=[{"role": "user", "content": "Say hello in one sentence."}],
+                  temperature=0
+              )
+              print("OpenAI works! Response:", response.choices[0].message.content)
+          except Exception as e:
+              print("OpenAI call failed:", e)
+          EOF
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
