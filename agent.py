@@ -72,15 +72,12 @@ def main():
     body = "\n\n".join(articles)
     subject = f"Website Monitor Digest — {datetime.now().strftime('%Y-%m-%d')}"
 
-    msg = MIMEText(body)
+        msg = MIMEText(body)
     msg["From"] = EMAIL_FROM
     msg["To"] = EMAIL_TO
     msg["Subject"] = subject
 
-    # =====================
-    # EMAIL WITH RETRY
-    # =====================
-        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
+    with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
         logged_in = False
 
         for attempt in range(3):
