@@ -1,3 +1,11 @@
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e:
+        import traceback
+        print("ERROR:")
+        traceback.print_exc()
+        raise e
 import os
 import feedparser
 import smtplib
