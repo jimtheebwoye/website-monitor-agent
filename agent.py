@@ -1,3 +1,4 @@
+import os
 import feedparser
 import smtplib
 from email.mime.text import MIMEText
@@ -65,7 +66,7 @@ def main():
     msg["Subject"] = subject
 
     with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
-        server.login(EMAIL_FROM, "APP_PASSWORD")
+        server.login(EMAIL_FROM, os.environ["EMAIL_PASSWORD"])
         server.send_message(msg)
 
     print("Email sent.")
