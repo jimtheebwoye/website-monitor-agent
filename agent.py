@@ -5,7 +5,7 @@ from datetime import datetime
 import os
 import time
 import re
-import openai  # Make sure openai is installed: pip install openai
+import openai
 
 # =====================
 # CONFIG
@@ -42,12 +42,16 @@ def get_matching_keywords(text):
                 matches.append(keyword)
     return matches
 
-def summarize_article(article_text):
+def summarize_text(text):
+    """Use OpenAI to summarize the text. Returns summary string or fallback."""
+    if not OPENAI_API_KEY:
+        return "Summary unavailable (API key missing)."
     try:
+        prompt = f"Summarize the key points of this text in 2-3 sentences:\n\n{text}"
         response = openai.ChatCompletion.create(
-            model="gpt-4",
-            messages=[{"role": "user", "content": f"Summarize this article in 2-3 concise points:\n\n{article_text}"}],
-            max_tokens=150
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
         )
         summary = response.choices[0].message.content.strip()
         return summary
@@ -60,19 +64,21 @@ def fetch_and_filter_articles():
 
     for feed_url in RSS_FEEDS:
         feed = feedparser.parse(feed_url)
+        website_name = feed.feed.get("title", "Unknown Website")
 
         for entry in feed.entries:
             text = f"{entry.get('title', '')} {entry.get('summary', '')}"
-            matched_keywords = get_matching_keywords(text)
-            if matched_keywords:
-                # Summarize using ChatGPT
-                summary = summarize_article(text)
+
+            if get_matching_keywords(text):
+                # extract date in a readable format
+                date = entry.get("published", entry.get("updated", "Unknown date"))
+
                 matches.append({
                     "title": entry.get("title", "No title"),
                     "link": entry.get("link", ""),
-                    "published": entry.get("published", "No date"),
-                    "website": feed.feed.get("title", "Unknown"),
-                    "summary": summary
+                    "date": date,
+                    "website": website_name,
+                    "summary": summarize_text(text)
                 })
 
     return matches
@@ -91,7 +97,7 @@ def main():
     for article in articles:
         body_lines.append(
             f"Title: {article['title']}\n"
-            f"Date: {article['published']}\n"
+            f"Date: {article['date']}\n"
             f"Website: {article['website']}\n"
             f"URL: {article['link']}\n"
             f"Summary:\n{article['summary']}\n"
@@ -108,7 +114,6 @@ def main():
 
     with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
         logged_in = False
-
         for attempt in range(3):
             try:
                 server.login(EMAIL_FROM, os.environ["EMAIL_PASSWORD"])
@@ -124,6 +129,7 @@ def main():
             )
 
         server.send_message(msg)
+        print("Email sent successfully.")
 
 if __name__ == "__main__":
     main()
