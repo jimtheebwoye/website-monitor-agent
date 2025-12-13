@@ -24,9 +24,6 @@ EMAIL_TO = "jimtheebwoye@gmail.com"
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 465
 
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-openai.api_key = OPENAI_API_KEY
-
 # =====================
 # HELPER FUNCTIONS
 # =====================
@@ -44,13 +41,20 @@ def get_matching_keywords(text):
 
 def summarize_text(text):
     """Use OpenAI to summarize the text. Returns summary string or fallback."""
-    if not OPENAI_API_KEY:
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
         return "Summary unavailable (API key missing)."
+    
+    openai.api_key = api_key
+    
     try:
-        prompt = f"Summarize the key points of this text in 2-3 sentences:\n\n{text}"
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant that summarizes news articles."},
+                {"role": "user", "content": f"Summarize the key points of this article in 2-3 concise sentences:\n\n{text}"}
+            ],
+            max_tokens=150,
             temperature=0.3,
         )
         summary = response.choices[0].message.content.strip()
@@ -70,7 +74,6 @@ def fetch_and_filter_articles():
             text = f"{entry.get('title', '')} {entry.get('summary', '')}"
 
             if get_matching_keywords(text):
-                # extract date in a readable format
                 date = entry.get("published", entry.get("updated", "Unknown date"))
 
                 matches.append({
