@@ -45,7 +45,22 @@ def get_matching_keywords(text):
                 matches.append(keyword)
 
     return matches
+def fetch_and_filter_articles():
+    matches = []
 
+    for feed_url in RSS_FEEDS:
+        feed = feedparser.parse(feed_url)
+
+        for entry in feed.entries:
+            text = f"{entry.get('title', '')} {entry.get('summary', '')}"
+
+            if matches_keywords(text):
+                matches.append({
+                    "title": entry.get("title", "No title"),
+                    "link": entry.get("link", "")
+                })
+
+    return matches
 # =====================
 # MAIN FUNCTION
 # =====================
