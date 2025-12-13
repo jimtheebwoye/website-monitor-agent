@@ -70,7 +70,7 @@ def main():
     # =====================
     # EMAIL WITH RETRY
     # =====================
-    with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
+        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
         logged_in = False
 
         for attempt in range(3):
@@ -78,12 +78,14 @@ def main():
                 server.login(EMAIL_FROM, os.environ["EMAIL_PASSWORD"])
                 logged_in = True
                 break
-            except smtplib.SMTPAuthenticationError as e:
+            except smtplib.SMTPAuthenticationError:
                 print(f"Attempt {attempt + 1} login failed. Retrying in 5 seconds...")
                 time.sleep(5)
 
         if not logged_in:
-            raise RuntimeError("Could not authenticate with Gmail SMTP. Aborting email send.")
+            raise RuntimeError(
+                "Could not authenticate with Gmail SMTP. Aborting email send."
+            )
 
         server.send_message(msg)
 
