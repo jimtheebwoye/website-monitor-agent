@@ -4,6 +4,7 @@ from email.mime.text import MIMEText
 from datetime import datetime
 import os
 import time  # needed for retry sleep
+import re
 
 # =====================
 # CONFIG
@@ -26,15 +27,24 @@ SMTP_PORT = 465
 # HELPER FUNCTIONS
 # =====================
 def get_matching_keywords(text):
-    """Returns a list of keywords that appear in the text (case-insensitive)."""
+    """
+    Returns a list of keywords that appear in the text.
+    - SAP must match as a whole word
+    - Others match as substrings
+    """
+    matches = []
     text_lower = text.lower()
-    return [k for k in KEYWORDS if k.lower() in text_lower]
 
-def summarize(entry):
-    """Return first 2 sentences of summary."""
-    summary = entry.get("summary", "")
-    sentences = summary.split(". ")
-    return ". ".join(sentences[:2]) + "."
+    for keyword in KEYWORDS:
+        if keyword == "SAP":
+            # Match SAP as a whole word only
+            if re.search(r"\bSAP\b", text, re.IGNORECASE):
+                matches.append(keyword)
+        else:
+            if keyword.lower() in text_lower:
+                matches.append(keyword)
+
+    return matches
 
 # =====================
 # MAIN FUNCTION
