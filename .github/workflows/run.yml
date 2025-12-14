@@ -28,3 +28,11 @@ jobs:
         env:
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
         run: python agent.py
+
+      - name: Commit sent articles state
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add sent_articles.json
+          git commit -m "Update sent articles state" || echo "No changes"
+          git push
