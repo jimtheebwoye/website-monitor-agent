@@ -4,6 +4,8 @@ from email.mime.text import MIMEText
 import os
 import time
 import re
+import json
+from datetime import datetime
 from transformers import pipeline
 
 # =====================
@@ -23,19 +25,28 @@ EMAIL_TO = "jimtheebwoye@gmail.com"
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 465
 
+SENT_ARTICLES_FILE = "sent_articles.json"
+
 # =====================
-# INITIALISE SUMMARISER (FREE)
+# LOAD SUMMARISER
 # =====================
 print("Loading summarisation model...")
-summarizer = pipeline(
-    "summarization",
-    model="facebook/bart-large-cnn"
-)
+summariser = pipeline("summarization", model="facebook/bart-large-cnn")
 print("Summariser ready.")
 
 # =====================
-# HELPER FUNCTIONS
+# UTILITIES
 # =====================
+def load_sent_articles():
+    if not os.path.exists(SENT_ARTICLES_FILE):
+        return set()
+    with open(SENT_ARTICLES_FILE, "r") as f:
+        return set(json.load(f))
+
+def save_sent_articles(urls):
+    with open(SENT_ARTICLES_FILE, "w") as f:
+        json.dump(list(urls), f)
+
 def get_matching_keywords(text):
     matches = []
     text_lower = text.lower()
@@ -50,31 +61,30 @@ def get_matching_keywords(text):
 
     return matches
 
-
 def summarize_text(text):
-    """
-    Free local summarisation.
-    Truncates long text to avoid model limits.
-    """
     try:
-        clean_text = re.sub(r"\s+", " ", text).strip()
-        clean_text = clean_text[:3000]  # safety limit
-
-        result = summarizer(
-            clean_text,
-            max_length=80,
-            min_length=30,
-            do_sample=False
+        prompt_text = (
+            "Summarise the following article in 4–6 sentences. "
+            "Include the key facts, organisations involved, and why it matters:\n\n"
+            + text
         )
 
-        return result[0]["summary_text"]
+        summary = summariser(
+            prompt_text,
+            max_length=200,
+            min_length=120,
+            do_sample=False
+        )[0]["summary_text"]
 
+        return summary
     except Exception as e:
         print(f"Summarisation failed: {e}")
         return "Summary unavailable."
 
-
-def fetch_and_filter_articles():
+# =====================
+# FETCH + FILTER
+# =====================
+def fetch_and_filter_articles(sent_urls):
     matches = []
 
     for feed_url in RSS_FEEDS:
@@ -82,6 +92,10 @@ def fetch_and_filter_articles():
         website_name = feed.feed.get("title", "Unknown Website")
 
         for entry in feed.entries:
+            url = entry.get("link", "")
+            if not url or url in sent_urls:
+                continue  # deduplication
+
             text = f"{entry.get('title', '')} {entry.get('summary', '')}"
 
             if get_matching_keywords(text):
@@ -89,7 +103,7 @@ def fetch_and_filter_articles():
 
                 matches.append({
                     "title": entry.get("title", "No title"),
-                    "link": entry.get("link", ""),
+                    "link": url,
                     "date": date,
                     "website": website_name,
                     "summary": summarize_text(text)
@@ -98,40 +112,67 @@ def fetch_and_filter_articles():
     return matches
 
 # =====================
-# MAIN FUNCTION
+# EMAIL (HTML)
+# =====================
+def build_html_email(articles):
+    html = """
+    <html>
+    <body style="font-family: Arial, sans-serif;">
+      <h2>Website Monitor – Matching Articles</h2>
+      <hr>
+    """
+
+    for article in articles:
+        html += f"""
+        <h3>{article['title']}</h3>
+        <p>
+          <strong>Date:</strong> {article['date']}<br>
+          <strong>Website:</strong> {article['website']}<br>
+          <strong>URL:</strong> <a href="{article['link']}">{article['link']}</a>
+        </p>
+        <p>{article['summary']}</p>
+        <hr>
+        """
+
+    html += "</body></html>"
+    return html
+
+# =====================
+# MAIN
 # =====================
 def main():
-    articles = fetch_and_filter_articles()
+    sent_urls = load_sent_articles()
+
+    articles = fetch_and_filter_articles(sent_urls)
 
     if not articles:
-        print("No matching articles found.")
+        print("No new matching articles found.")
         return
 
-    body_lines = []
-    for article in articles:
-        body_lines.append(
-            f"Title: {article['title']}\n"
-            f"Date: {article['date']}\n"
-            f"Website: {article['website']}\n"
-            f"URL: {article['link']}\n"
-            f"Summary:\n{article['summary']}\n"
-            "----------------------\n"
-        )
+    html_body = build_html_email(articles)
 
-    body = "\n".join(body_lines)
-    subject = f"Website Monitor: {len(articles)} matching articles"
-
-    msg = MIMEText(body)
+    msg = MIMEText(html_body, "html")
     msg["From"] = EMAIL_FROM
     msg["To"] = EMAIL_TO
-    msg["Subject"] = subject
+    msg["Subject"] = f"Website Monitor: {len(articles)} new articles"
 
     with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
-        server.login(EMAIL_FROM, os.environ["EMAIL_PASSWORD"])
+        for attempt in range(3):
+            try:
+                server.login(EMAIL_FROM, os.environ["EMAIL_PASSWORD"])
+                break
+            except smtplib.SMTPAuthenticationError:
+                time.sleep(5)
+
         server.send_message(msg)
 
-    print("Email sent successfully.")
+    # Save sent URLs
+    for article in articles:
+        sent_urls.add(article["link"])
 
+    save_sent_articles(sent_urls)
+
+    print("Email sent successfully.")
 
 if __name__ == "__main__":
     main()
