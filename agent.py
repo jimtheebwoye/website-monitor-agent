@@ -1,13 +1,12 @@
 import feedparser
 import smtplib
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from datetime import datetime
 import os
 import time
 import re
 import json
-import hashlib
-import openai
+import requests
 
 # =====================
 # CONFIG
@@ -26,10 +25,10 @@ EMAIL_TO = "jimtheebwoye@gmail.com"
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 465
 
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-openai.api_key = OPENAI_API_KEY
-
 STATE_FILE = "sent_articles.json"
+
+HF_API_KEY = os.environ.get("HUGGINGFACE_API_KEY")
+HF_MODEL_URL = "https://api-inference.huggingface.co/models/facebook/bart-large-cnn"
 
 # =====================
 # STATE (DEDUPLICATION)
@@ -40,12 +39,9 @@ def load_sent_articles():
             return set(json.load(f))
     return set()
 
-def save_sent_articles(sent_ids):
+def save_sent_articles(urls):
     with open(STATE_FILE, "w") as f:
-        json.dump(list(sent_ids), f)
-
-def article_id(link):
-    return hashlib.sha256(link.encode()).hexdigest()
+        json.dump(list(urls), f)
 
 # =====================
 # KEYWORD MATCHING
@@ -65,139 +61,116 @@ def get_matching_keywords(text):
     return matches
 
 # =====================
-# SUMMARISATION
+# HUGGING FACE SUMMARY
 # =====================
 def summarize_text(text):
-    if not OPENAI_API_KEY:
-        return "Summary unavailable (OpenAI API key missing)."
+    if not HF_API_KEY:
+        return "Summary unavailable (Hugging Face API key missing)."
+
+    headers = {
+        "Authorization": f"Bearer {HF_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "inputs": text[:3000],  # stay within limits
+        "parameters": {
+            "max_length": 150,
+            "min_length": 70,
+            "do_sample": False
+        }
+    }
 
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a technology analyst summarising news for senior IT leaders."
-                },
-                {
-                    "role": "user",
-                    "content": f"Summarise the key facts and implications of this article in 4–5 concise sentences:\n\n{text}"
-                }
-            ],
-            temperature=0.3,
-        )
+        response = requests.post(HF_MODEL_URL, headers=headers, json=payload, timeout=30)
+        response.raise_for_status()
+        data = response.json()
 
-        return response.choices[0].message.content.strip()
+        if isinstance(data, list) and "summary_text" in data[0]:
+            return data[0]["summary_text"]
 
+        return "Summary unavailable."
     except Exception as e:
-        print(f"OpenAI summarisation failed: {e}")
+        print(f"Summarisation failed: {e}")
         return "Summary unavailable."
 
 # =====================
-# FETCH + FILTER
+# FETCH & FILTER
 # =====================
-def fetch_and_filter_articles(sent_ids):
-    results = []
+def fetch_and_filter_articles(sent_urls):
+    matches = []
 
     for feed_url in RSS_FEEDS:
         feed = feedparser.parse(feed_url)
-        website = feed.feed.get("title", "Unknown source")
+        website_name = feed.feed.get("title", "Unknown Website")
 
         for entry in feed.entries:
-            title = entry.get("title", "")
-            summary = entry.get("summary", "")
-            link = entry.get("link", "")
-
-            # CIO.com FIX (Option 1)
-            if not summary or len(summary.strip()) < 100:
-                summary = title
-
-            text = f"{title}. {summary}"
-
-            if not get_matching_keywords(text):
+            url = entry.get("link", "")
+            if not url or url in sent_urls:
                 continue
 
-            aid = article_id(link)
-            if aid in sent_ids:
-                continue
+            text = f"{entry.get('title', '')} {entry.get('summary', '')}"
 
-            published = entry.get("published", entry.get("updated", "Unknown date"))
+            if get_matching_keywords(text):
+                summary = summarize_text(text)
+                date = entry.get("published", entry.get("updated", "Unknown date"))
 
-            results.append({
-                "id": aid,
-                "title": title,
-                "link": link,
-                "date": published,
-                "website": website,
-                "summary": summarize_text(text)
-            })
+                matches.append({
+                    "title": entry.get("title", "No title"),
+                    "link": url,
+                    "date": date,
+                    "website": website_name,
+                    "summary": summary
+                })
 
-    return results
+                sent_urls.add(url)
+
+    return matches
 
 # =====================
-# EMAIL
+# MAIN
 # =====================
-def send_email(articles):
-    rows = ""
+def main():
+    sent_urls = load_sent_articles()
+    articles = fetch_and_filter_articles(sent_urls)
 
-    for a in articles:
-        rows += f"""
-        <tr>
-            <td style="padding:15px;border-bottom:1px solid #ddd;">
-                <h3>{a['title']}</h3>
-                <p><b>Date:</b> {a['date']}<br>
-                <b>Source:</b> {a['website']}<br>
-                <b>URL:</b> <a href="{a['link']}">{a['link']}</a></p>
-                <p>{a['summary']}</p>
-            </td>
-        </tr>
-        """
+    if not articles:
+        print("No new matching articles.")
+        return
 
-    html = f"""
-    <html>
-    <body style="font-family:Arial, sans-serif;">
-        <h2>Website Monitor – {len(articles)} new articles</h2>
-        <table width="100%" cellpadding="0" cellspacing="0">
-            {rows}
-        </table>
-    </body>
-    </html>
-    """
+    save_sent_articles(sent_urls)
 
-    msg = MIMEText(html, "html")
+    msg = MIMEMultipart("alternative")
     msg["From"] = EMAIL_FROM
     msg["To"] = EMAIL_TO
-    msg["Subject"] = f"Website Monitor: {len(articles)} new articles"
+    msg["Subject"] = f"Website Monitor: {len(articles)} new matching articles"
+
+    html = "<html><body>"
+    html += "<h2>New Articles</h2>"
+
+    for a in articles:
+        html += f"""
+        <hr>
+        <h3>{a['title']}</h3>
+        <p><strong>Date:</strong> {a['date']}<br>
+        <strong>Website:</strong> {a['website']}<br>
+        <strong>URL:</strong> <a href="{a['link']}">{a['link']}</a></p>
+        <p>{a['summary']}</p>
+        """
+
+    html += "</body></html>"
+    msg.attach(MIMEText(html, "html"))
 
     with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
         for attempt in range(3):
             try:
                 server.login(EMAIL_FROM, os.environ["EMAIL_PASSWORD"])
                 server.send_message(msg)
-                return
+                print("Email sent successfully.")
+                break
             except smtplib.SMTPAuthenticationError:
+                print("Login failed, retrying...")
                 time.sleep(5)
-
-        raise RuntimeError("Email authentication failed")
-
-# =====================
-# MAIN
-# =====================
-def main():
-    sent_ids = load_sent_articles()
-    articles = fetch_and_filter_articles(sent_ids)
-
-    if not articles:
-        print("No new matching articles.")
-        return
-
-    send_email(articles)
-
-    for a in articles:
-        sent_ids.add(a["id"])
-
-    save_sent_articles(sent_ids)
-    print(f"Sent {len(articles)} new articles.")
 
 if __name__ == "__main__":
     main()
