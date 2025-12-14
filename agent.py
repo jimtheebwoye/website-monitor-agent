@@ -1,11 +1,10 @@
 import feedparser
 import smtplib
 from email.mime.text import MIMEText
-from datetime import datetime
 import os
 import time
 import re
-from openai import OpenAI
+from transformers import pipeline
 
 # =====================
 # CONFIG
@@ -24,21 +23,20 @@ EMAIL_TO = "jimtheebwoye@gmail.com"
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 465
 
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-
-# Initialise OpenAI client
-client = OpenAI(api_key=OPENAI_API_KEY)
-
-print("OPENAI_API_KEY present:", bool(OPENAI_API_KEY))
+# =====================
+# INITIALISE SUMMARISER (FREE)
+# =====================
+print("Loading summarisation model...")
+summarizer = pipeline(
+    "summarization",
+    model="facebook/bart-large-cnn"
+)
+print("Summariser ready.")
 
 # =====================
 # HELPER FUNCTIONS
 # =====================
 def get_matching_keywords(text):
-    """
-    Returns a list of keywords that appear in the text.
-    SAP must match as a whole word.
-    """
     matches = []
     text_lower = text.lower()
 
@@ -55,31 +53,24 @@ def get_matching_keywords(text):
 
 def summarize_text(text):
     """
-    Uses OpenAI to summarise text in 2–3 sentences.
+    Free local summarisation.
+    Truncates long text to avoid model limits.
     """
-    if not OPENAI_API_KEY:
-        return "Summary unavailable (OpenAI API key missing)."
-
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {
-                    "role": "user",
-                    "content": (
-                        "Summarise the key points of the following article "
-                        "in 2–3 concise sentences:\n\n"
-                        f"{text}"
-                    ),
-                }
-            ],
-            temperature=0.3,
+        clean_text = re.sub(r"\s+", " ", text).strip()
+        clean_text = clean_text[:3000]  # safety limit
+
+        result = summarizer(
+            clean_text,
+            max_length=80,
+            min_length=30,
+            do_sample=False
         )
 
-        return response.choices[0].message.content.strip()
+        return result[0]["summary_text"]
 
     except Exception as e:
-        print(f"OpenAI summarisation failed: {e}")
+        print(f"Summarisation failed: {e}")
         return "Summary unavailable."
 
 
@@ -105,7 +96,6 @@ def fetch_and_filter_articles():
                 })
 
     return matches
-
 
 # =====================
 # MAIN FUNCTION
@@ -137,22 +127,10 @@ def main():
     msg["Subject"] = subject
 
     with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
-        logged_in = False
-
-        for attempt in range(3):
-            try:
-                server.login(EMAIL_FROM, os.environ["EMAIL_PASSWORD"])
-                logged_in = True
-                break
-            except smtplib.SMTPAuthenticationError:
-                print(f"Attempt {attempt + 1} login failed. Retrying in 5 seconds...")
-                time.sleep(5)
-
-        if not logged_in:
-            raise RuntimeError("Could not authenticate with Gmail SMTP.")
-
+        server.login(EMAIL_FROM, os.environ["EMAIL_PASSWORD"])
         server.send_message(msg)
-        print("Email sent successfully.")
+
+    print("Email sent successfully.")
 
 
 if __name__ == "__main__":
