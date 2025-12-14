@@ -1,43 +1,33 @@
 name: Website Monitor Agent
 
-permissions:
-  contents: write
-
 on:
   schedule:
-    # Runs every 2 days at 08:00 UTC
-    - cron: "0 8 */2 * *"
+    - cron: '0 8 */2 * *'   # every 2 days at 08:00 UTC
   workflow_dispatch:
 
 jobs:
   run-agent:
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: write   # REQUIRED for deduplication state file
+
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v3
-        with:
-            persist-credentials: true
+    - name: Checkout repo
+      uses: actions/checkout@v3
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.11"
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install feedparser transformers torch
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install feedparser requests
 
-      - name: Run website monitor agent
-        env:
-          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
-        run: python agent.py
-
-      - name: Commit sent articles state
-        run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git add sent_articles.json
-          git commit -m "Update sent articles state" || echo "No changes"
-          git push
+    - name: Run website monitor agent
+      env:
+        EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+        HUGGINGFACE_API_KEY: ${{ secrets.HUGGINGFACE_API_KEY }}
+      run: python agent.py
