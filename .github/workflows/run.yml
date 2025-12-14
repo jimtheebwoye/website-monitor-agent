@@ -1,5 +1,8 @@
 name: Website Monitor Agent
 
+permissions:
+  contents: write
+
 on:
   schedule:
     # Runs every 2 days at 08:00 UTC
