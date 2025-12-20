@@ -7,6 +7,7 @@ import time
 import re
 import json
 import requests
+from newspaper import Article  # pip install newspaper3k
 
 # =====================
 # CONFIG
@@ -27,7 +28,7 @@ SMTP_PORT = 465
 
 STATE_FILE = "sent_articles.json"
 
-# Hugging Face (lighter, more reliable model)
+# Hugging Face summarisation model
 HF_API_KEY = os.environ.get("HUGGINGFACE_API_KEY")
 HF_MODEL_URL = "https://api-inference.huggingface.co/models/sshleifer/distilbart-cnn-12-6"
 
@@ -50,7 +51,6 @@ def save_sent_articles(urls):
 def get_matching_keywords(text):
     matches = []
     text_lower = text.lower()
-
     for keyword in KEYWORDS:
         if keyword == "SAP":
             if re.search(r"\bSAP\b", text, re.IGNORECASE):
@@ -58,15 +58,27 @@ def get_matching_keywords(text):
         else:
             if keyword.lower() in text_lower:
                 matches.append(keyword)
-
     return matches
+
+# =====================
+# FETCH FULL ARTICLE TEXT
+# =====================
+def fetch_full_text(url):
+    try:
+        article = Article(url)
+        article.download()
+        article.parse()
+        return article.text
+    except Exception as e:
+        print(f"Failed to fetch article text from {url}: {e}")
+        return ""
 
 # =====================
 # HUGGING FACE SUMMARY
 # =====================
 def summarize_text(text, retries=2):
-    if not HF_API_KEY:
-        return "Summary unavailable (Hugging Face API key missing)."
+    if not HF_API_KEY or not text.strip():
+        return "Summary unavailable (no text or API key missing)."
 
     headers = {
         "Authorization": f"Bearer {HF_API_KEY}",
@@ -76,8 +88,8 @@ def summarize_text(text, retries=2):
     payload = {
         "inputs": text[:2500],
         "parameters": {
-            "max_length": 200,
-            "min_length": 100,
+            "max_length": 250,
+            "min_length": 120,
             "do_sample": False
         }
     }
@@ -90,7 +102,6 @@ def summarize_text(text, retries=2):
             timeout=60
         )
 
-        # Model busy / loading → retry
         if response.status_code in (429, 503) and retries > 0:
             print("Hugging Face busy. Retrying in 20 seconds...")
             time.sleep(20)
@@ -103,13 +114,12 @@ def summarize_text(text, retries=2):
             return data[0]["summary_text"]
 
         return "Summary unavailable."
-
     except Exception as e:
         print(f"Summarisation failed: {e}")
         return "Summary unavailable."
 
 # =====================
-# FETCH & FILTER
+# FETCH & FILTER ARTICLES
 # =====================
 def fetch_and_filter_articles(sent_urls):
     matches = []
@@ -123,14 +133,17 @@ def fetch_and_filter_articles(sent_urls):
             if not url or url in sent_urls:
                 continue
 
-            text = f"{entry.get('title', '')} {entry.get('summary', '')}"
+            # Fetch full article content
+            article_text = fetch_full_text(url)
+            title = entry.get("title", "")
+            combined_text = f"{title} {article_text}"
 
-            if get_matching_keywords(text):
-                summary = summarize_text(text)
+            if get_matching_keywords(combined_text):
+                summary = summarize_text(combined_text)
                 date = entry.get("published", entry.get("updated", "Unknown date"))
 
                 matches.append({
-                    "title": entry.get("title", "No title"),
+                    "title": title or "No title",
                     "link": url,
                     "date": date,
                     "website": website_name,
