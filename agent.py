@@ -44,14 +44,6 @@ def save_sent_articles(urls):
         json.dump(list(urls), f)
 
 # =====================
-# TEXT CLEANING
-# =====================
-def clean_text(text):
-    text = re.sub(r"<[^>]+>", "", text)  # remove HTML
-    text = re.sub(r"\s+", " ", text)
-    return text.strip()
-
-# =====================
 # KEYWORD MATCHING
 # =====================
 def get_matching_keywords(text):
@@ -69,17 +61,11 @@ def get_matching_keywords(text):
     return matches
 
 # =====================
-# HUGGING FACE SUMMARY
+# HUGGING FACE SUMMARY (WITH RETRY)
 # =====================
-def summarize_text(text):
+def summarize_text(text, retries=1):
     if not HF_API_KEY:
         return "Summary unavailable (Hugging Face API key missing)."
-
-    cleaned = clean_text(text)
-
-    # BART needs enough text to work well
-    if len(cleaned) < 200:
-        return "Summary unavailable (article text too short)."
 
     headers = {
         "Authorization": f"Bearer {HF_API_KEY}",
@@ -87,7 +73,7 @@ def summarize_text(text):
     }
 
     payload = {
-        "inputs": cleaned[:3000],
+        "inputs": text[:3000],
         "parameters": {
             "max_length": 180,
             "min_length": 90,
@@ -103,18 +89,18 @@ def summarize_text(text):
             timeout=60
         )
 
+        # Model warming up → retry once
+        if response.status_code == 503 and retries > 0:
+            print("Hugging Face model warming up. Waiting 30 seconds and retrying...")
+            time.sleep(30)
+            return summarize_text(text, retries=retries - 1)
+
+        response.raise_for_status()
         data = response.json()
 
-        # Model warming up / HF errors
-        if isinstance(data, dict) and "error" in data:
-            print("HF API message:", data["error"])
-            return "Summary unavailable (model warming up)."
-
-        # Success
         if isinstance(data, list) and "summary_text" in data[0]:
-            return data[0]["summary_text"].strip()
+            return data[0]["summary_text"]
 
-        print("Unexpected HF response:", data)
         return "Summary unavailable."
 
     except Exception as e:
@@ -136,10 +122,7 @@ def fetch_and_filter_articles(sent_urls):
             if not url or url in sent_urls:
                 continue
 
-            text = f"""
-            Title: {entry.get('title', '')}
-            Summary: {entry.get('summary', '')}
-            """
+            text = f"{entry.get('title', '')} {entry.get('summary', '')}"
 
             if get_matching_keywords(text):
                 summary = summarize_text(text)
@@ -185,8 +168,7 @@ def main():
         <p>
             <strong>Date:</strong> {a['date']}<br>
             <strong>Website:</strong> {a['website']}<br>
-            <strong>URL:</strong>
-            <a href="{a['link']}">{a['link']}</a>
+            <strong>URL:</strong> <a href="{a['link']}">{a['link']}</a>
         </p>
         <p>{a['summary']}</p>
         """
