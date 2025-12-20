@@ -27,8 +27,9 @@ SMTP_PORT = 465
 
 STATE_FILE = "sent_articles.json"
 
+# Hugging Face (lighter, more reliable model)
 HF_API_KEY = os.environ.get("HUGGINGFACE_API_KEY")
-HF_MODEL_URL = "https://api-inference.huggingface.co/models/facebook/bart-large-cnn"
+HF_MODEL_URL = "https://api-inference.huggingface.co/models/sshleifer/distilbart-cnn-12-6"
 
 # =====================
 # STATE (DEDUPLICATION)
@@ -75,8 +76,8 @@ def summarize_text(text, retries=2):
     payload = {
         "inputs": text[:2500],
         "parameters": {
-            "max_length": 180,
-            "min_length": 90,
+            "max_length": 200,
+            "min_length": 100,
             "do_sample": False
         }
     }
@@ -89,25 +90,18 @@ def summarize_text(text, retries=2):
             timeout=60
         )
 
+        # Model busy / loading → retry
+        if response.status_code in (429, 503) and retries > 0:
+            print("Hugging Face busy. Retrying in 20 seconds...")
+            time.sleep(20)
+            return summarize_text(text, retries - 1)
+
+        response.raise_for_status()
         data = response.json()
 
-        # Model loading or rate limit returned as JSON
-        if isinstance(data, dict) and "error" in data:
-            print(f"Hugging Face response error: {data}")
-
-            if "loading" in data["error"].lower() and retries > 0:
-                wait_time = int(data.get("estimated_time", 20))
-                print(f"Model loading. Waiting {wait_time}s and retrying...")
-                time.sleep(wait_time)
-                return summarize_text(text, retries - 1)
-
-            return "Summary unavailable (Hugging Face busy)."
-
-        # Successful response
         if isinstance(data, list) and "summary_text" in data[0]:
             return data[0]["summary_text"]
 
-        print(f"Unexpected Hugging Face response: {data}")
         return "Summary unavailable."
 
     except Exception as e:
@@ -163,10 +157,10 @@ def main():
     msg = MIMEMultipart("alternative")
     msg["From"] = EMAIL_FROM
     msg["To"] = EMAIL_TO
-    msg["Subject"] = f"Website Monitor: {len(articles)} new matching articles"
+    msg["Subject"] = f"Website Monitor: {len(articles)} new articles"
 
     html = "<html><body>"
-    html += "<h2>New Articles</h2>"
+    html += "<h2>New Matching Articles</h2>"
 
     for a in articles:
         html += f"""
@@ -175,8 +169,7 @@ def main():
         <p>
             <strong>Date:</strong> {a['date']}<br>
             <strong>Website:</strong> {a['website']}<br>
-            <strong>URL:</strong>
-            <a href="{a['link']}">{a['link']}</a>
+            <strong>URL:</strong> <a href="{a['link']}">{a['link']}</a>
         </p>
         <p>{a['summary']}</p>
         """
@@ -185,15 +178,10 @@ def main():
     msg.attach(MIMEText(html, "html"))
 
     with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
-        for attempt in range(3):
-            try:
-                server.login(EMAIL_FROM, os.environ["EMAIL_PASSWORD"])
-                server.send_message(msg)
-                print("Email sent successfully.")
-                break
-            except smtplib.SMTPAuthenticationError:
-                print("Login failed, retrying...")
-                time.sleep(5)
+        server.login(EMAIL_FROM, os.environ["EMAIL_PASSWORD"])
+        server.send_message(msg)
+
+    print("Email sent successfully.")
 
 if __name__ == "__main__":
     main()
