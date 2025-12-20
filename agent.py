@@ -28,9 +28,8 @@ SMTP_PORT = 465
 
 STATE_FILE = "sent_articles.json"
 
-# Hugging Face summarisation model
 HF_API_KEY = os.environ.get("HUGGINGFACE_API_KEY")
-HF_MODEL_URL = "https://api-inference.huggingface.co/models/sshleifer/distilbart-cnn-12-6"
+HF_MODEL_URL = "https://api-inference.huggingface.co/models/facebook/bart-large-cnn"
 
 # =====================
 # STATE (DEDUPLICATION)
@@ -80,28 +79,20 @@ def summarize_text(text, retries=2):
     if not HF_API_KEY or not text.strip():
         return "Summary unavailable (no text or API key missing)."
 
+    truncated_text = text[:2000]  # keep under ~1024 tokens
     headers = {
         "Authorization": f"Bearer {HF_API_KEY}",
         "Content-Type": "application/json"
     }
-
     payload = {
-        "inputs": text[:2500],
-        "parameters": {
-            "max_length": 250,
-            "min_length": 120,
-            "do_sample": False
-        }
+        "inputs": truncated_text,
+        "parameters": {"max_length": 200, "min_length": 80, "do_sample": False}
     }
 
     try:
-        response = requests.post(
-            HF_MODEL_URL,
-            headers=headers,
-            json=payload,
-            timeout=60
-        )
+        response = requests.post(HF_MODEL_URL, headers=headers, json=payload, timeout=60)
 
+        # Retry if busy
         if response.status_code in (429, 503) and retries > 0:
             print("Hugging Face busy. Retrying in 20 seconds...")
             time.sleep(20)
@@ -113,7 +104,9 @@ def summarize_text(text, retries=2):
         if isinstance(data, list) and "summary_text" in data[0]:
             return data[0]["summary_text"]
 
+        print("Unexpected HF response:", data)
         return "Summary unavailable."
+
     except Exception as e:
         print(f"Summarisation failed: {e}")
         return "Summary unavailable."
@@ -135,6 +128,10 @@ def fetch_and_filter_articles(sent_urls):
 
             # Fetch full article content
             article_text = fetch_full_text(url)
+            if not article_text.strip():
+                print(f"No article text fetched for {url}")
+                continue
+
             title = entry.get("title", "")
             combined_text = f"{title} {article_text}"
 
