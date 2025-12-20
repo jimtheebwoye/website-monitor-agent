@@ -61,9 +61,9 @@ def get_matching_keywords(text):
     return matches
 
 # =====================
-# HUGGING FACE SUMMARY (WITH RETRY)
+# HUGGING FACE SUMMARY
 # =====================
-def summarize_text(text, retries=1):
+def summarize_text(text, retries=2):
     if not HF_API_KEY:
         return "Summary unavailable (Hugging Face API key missing)."
 
@@ -73,7 +73,7 @@ def summarize_text(text, retries=1):
     }
 
     payload = {
-        "inputs": text[:3000],
+        "inputs": text[:2500],
         "parameters": {
             "max_length": 180,
             "min_length": 90,
@@ -89,18 +89,25 @@ def summarize_text(text, retries=1):
             timeout=60
         )
 
-        # Model warming up → retry once
-        if response.status_code == 503 and retries > 0:
-            print("Hugging Face model warming up. Waiting 30 seconds and retrying...")
-            time.sleep(30)
-            return summarize_text(text, retries=retries - 1)
-
-        response.raise_for_status()
         data = response.json()
 
+        # Model loading or rate limit returned as JSON
+        if isinstance(data, dict) and "error" in data:
+            print(f"Hugging Face response error: {data}")
+
+            if "loading" in data["error"].lower() and retries > 0:
+                wait_time = int(data.get("estimated_time", 20))
+                print(f"Model loading. Waiting {wait_time}s and retrying...")
+                time.sleep(wait_time)
+                return summarize_text(text, retries - 1)
+
+            return "Summary unavailable (Hugging Face busy)."
+
+        # Successful response
         if isinstance(data, list) and "summary_text" in data[0]:
             return data[0]["summary_text"]
 
+        print(f"Unexpected Hugging Face response: {data}")
         return "Summary unavailable."
 
     except Exception as e:
@@ -168,7 +175,8 @@ def main():
         <p>
             <strong>Date:</strong> {a['date']}<br>
             <strong>Website:</strong> {a['website']}<br>
-            <strong>URL:</strong> <a href="{a['link']}">{a['link']}</a>
+            <strong>URL:</strong>
+            <a href="{a['link']}">{a['link']}</a>
         </p>
         <p>{a['summary']}</p>
         """
