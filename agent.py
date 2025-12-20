@@ -44,6 +44,14 @@ def save_sent_articles(urls):
         json.dump(list(urls), f)
 
 # =====================
+# TEXT CLEANING
+# =====================
+def clean_text(text):
+    text = re.sub(r"<[^>]+>", "", text)  # remove HTML
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+# =====================
 # KEYWORD MATCHING
 # =====================
 def get_matching_keywords(text):
@@ -67,29 +75,48 @@ def summarize_text(text):
     if not HF_API_KEY:
         return "Summary unavailable (Hugging Face API key missing)."
 
+    cleaned = clean_text(text)
+
+    # BART needs enough text to work well
+    if len(cleaned) < 200:
+        return "Summary unavailable (article text too short)."
+
     headers = {
         "Authorization": f"Bearer {HF_API_KEY}",
         "Content-Type": "application/json"
     }
 
     payload = {
-        "inputs": text[:3000],  # stay within limits
+        "inputs": cleaned[:3000],
         "parameters": {
-            "max_length": 150,
-            "min_length": 70,
+            "max_length": 180,
+            "min_length": 90,
             "do_sample": False
         }
     }
 
     try:
-        response = requests.post(HF_MODEL_URL, headers=headers, json=payload, timeout=30)
-        response.raise_for_status()
+        response = requests.post(
+            HF_MODEL_URL,
+            headers=headers,
+            json=payload,
+            timeout=60
+        )
+
         data = response.json()
 
-        if isinstance(data, list) and "summary_text" in data[0]:
-            return data[0]["summary_text"]
+        # Model warming up / HF errors
+        if isinstance(data, dict) and "error" in data:
+            print("HF API message:", data["error"])
+            return "Summary unavailable (model warming up)."
 
+        # Success
+        if isinstance(data, list) and "summary_text" in data[0]:
+            return data[0]["summary_text"].strip()
+
+        print("Unexpected HF response:", data)
         return "Summary unavailable."
+
     except Exception as e:
         print(f"Summarisation failed: {e}")
         return "Summary unavailable."
@@ -109,7 +136,10 @@ def fetch_and_filter_articles(sent_urls):
             if not url or url in sent_urls:
                 continue
 
-            text = f"{entry.get('title', '')} {entry.get('summary', '')}"
+            text = f"""
+            Title: {entry.get('title', '')}
+            Summary: {entry.get('summary', '')}
+            """
 
             if get_matching_keywords(text):
                 summary = summarize_text(text)
@@ -152,9 +182,12 @@ def main():
         html += f"""
         <hr>
         <h3>{a['title']}</h3>
-        <p><strong>Date:</strong> {a['date']}<br>
-        <strong>Website:</strong> {a['website']}<br>
-        <strong>URL:</strong> <a href="{a['link']}">{a['link']}</a></p>
+        <p>
+            <strong>Date:</strong> {a['date']}<br>
+            <strong>Website:</strong> {a['website']}<br>
+            <strong>URL:</strong>
+            <a href="{a['link']}">{a['link']}</a>
+        </p>
         <p>{a['summary']}</p>
         """
 
